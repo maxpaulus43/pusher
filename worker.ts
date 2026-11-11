@@ -4,12 +4,27 @@ import { buildPushHTTPRequest } from "@pushforge/builder";
 type Env = { HUB: DurableObjectNamespace<Hub>; TOKEN: string; VAPID_JWK: string };
 type Payload = { web_push: 8030; notification: { title: string; body: string; navigate: string } };
 type Sub = { endpoint: string; keys: { p256dh: string; auth: string } };
+// The key is the channel's secret: anyone with /c/<key> can send to it.
+type Channel = { key: string; name: string; emoji: string; url: string };
 
 // Holds every device subscription. shortcut: one user, one Hub instance; key it by user when you add accounts.
 export class Hub extends DurableObject<Env> {
   async subscribe(sub: Sub) {
     await this.ctx.storage.put(`sub:${sub.endpoint}`, sub);
     return (await this.ctx.storage.list({ prefix: "sub:" })).size;
+  }
+
+  async channels() {
+    return [...(await this.ctx.storage.list<Channel>({ prefix: "ch:" })).values()];
+  }
+  async channel(key: string) {
+    return this.ctx.storage.get<Channel>(`ch:${key}`);
+  }
+  async saveChannel(ch: Channel) {
+    await this.ctx.storage.put(`ch:${ch.key}`, ch);
+  }
+  async deleteChannel(key: string) {
+    await this.ctx.storage.delete(`ch:${key}`);
   }
 
   async send(payload: Payload, origin: string) {
@@ -41,8 +56,18 @@ function publicKey(jwk: { x: string; y: string }) {
 // Static files in public/ are served before this runs.
 export default {
   async fetch(req, env) {
-    const { pathname, origin } = new URL(req.url);
+    const url = new URL(req.url);
+    const { pathname, origin } = url;
     const hub = env.HUB.get(env.HUB.idFromName("default"));
+
+    const notify = async (title: string, body?: string, link?: string) => {
+      if (!body) return new Response("message required\n", { status: 400 });
+      // iOS opens every notification tap inside the PWA, so links go through /open, which hands off to the app.
+      const navigate = link ? `${origin}/open?u=${encodeURIComponent(link)}` : `${origin}/`;
+      // Declarative Web Push format (Safari 18.4+ shows it without JS). sw.js handles older browsers.
+      const payload: Payload = { web_push: 8030, notification: { title, body, navigate } };
+      return new Response(await hub.send(payload, origin));
+    };
 
     if (pathname === "/vapid") return Response.json({ publicKey: publicKey(JSON.parse(env.VAPID_JWK)) });
 
@@ -56,15 +81,38 @@ export default {
     if (pathname === "/send" && req.method === "POST") {
       const form = await req.formData();
       if (form.get("token") !== env.TOKEN) return new Response("bad token\n", { status: 401 });
-      const message = form.get("message")?.toString();
-      if (!message) return new Response("message required\n", { status: 400 });
-      const title = form.get("title")?.toString() ?? "Pusher";
-      // iOS opens every notification tap inside the PWA, so links go through /open, which hands off to the app.
-      const url = form.get("url")?.toString();
-      const navigate = url ? `${origin}/open?u=${encodeURIComponent(url)}` : `${origin}/`;
-      // Declarative Web Push format (Safari 18.4+ shows it without JS). sw.js handles older browsers.
-      const payload: Payload = { web_push: 8030, notification: { title, body: message, navigate } };
-      return new Response(await hub.send(payload, origin));
+      const f = (k: string) => form.get(k)?.toString();
+      return notify(f("title") ?? "Pusher", f("message"), f("url"));
+    }
+
+    // Channel webhook. GET works from a browser or Shortcuts: /c/<key>?m=hi[&t=title][&u=url]
+    const hook = pathname.match(/^\/c\/([a-f0-9]+)$/);
+    if (hook) {
+      const ch = await hub.channel(hook[1]!);
+      if (!ch) return new Response("unknown channel\n", { status: 404 });
+      const q = req.method === "POST" ? await req.formData() : url.searchParams;
+      const f = (...ks: string[]) => ks.map((k) => q.get(k)?.toString()).find(Boolean);
+      const title = f("t", "title") ?? ch.name;
+      return notify(ch.emoji ? `${ch.emoji} ${title}` : title, f("m", "message"), f("u", "url") ?? (ch.url || undefined));
+    }
+
+    // Channel management, used by the web app. Same token as /send.
+    if (pathname.startsWith("/channels")) {
+      if (req.headers.get("authorization") !== `Bearer ${env.TOKEN}`) return new Response("bad token\n", { status: 401 });
+      const key = pathname.split("/")[2];
+      if (req.method === "GET") return Response.json(await hub.channels());
+      if (req.method === "DELETE" && key) return (await hub.deleteChannel(key), new Response(null, { status: 204 }));
+      if (req.method === "PUT") {
+        const b = (await req.json()) as Partial<Channel>;
+        const ch: Channel = {
+          key: key ?? [...crypto.getRandomValues(new Uint8Array(16))].map((x) => x.toString(16).padStart(2, "0")).join(""),
+          name: String(b.name ?? "").trim() || "Untitled",
+          emoji: String(b.emoji ?? "").trim(),
+          url: String(b.url ?? "").trim(),
+        };
+        await hub.saveChannel(ch);
+        return Response.json(ch);
+      }
     }
 
     return new Response("not found\n", { status: 404 });

@@ -11,6 +11,14 @@
     input { background: #1c1c1c; color: #eee; }
     button { background: #fff; color: #111; border: 0; font-weight: 600; }
     #status { margin-top: 16px; color: #aaa; }
+    h2 { margin-top: 40px; display: flex; justify-content: space-between; align-items: center; }
+    h2 button { width: auto; margin: 0; padding: 6px 14px; }
+    .ch { background: #1a1a1a; border-radius: 14px; padding: 4px 14px 14px; margin-top: 14px; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    .ch .emoji { flex: 0 0 64px; text-align: center; }
+    .ch button.ghost { background: #2a2a2a; color: #eee; }
+    .hook { margin-top: 12px; font: 13px ui-monospace, monospace; color: #888; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -18,6 +26,16 @@
   <input id="token" placeholder="Token" autocomplete="off" />
   <button id="enable">Enable notifications</button>
   <p id="status"></p>
+  <h2>Channels <button id="add">+</button></h2>
+  <div id="channels"></div>
+  <template id="tpl">
+    <div class="ch">
+      <div class="row"><input class="emoji" placeholder="🔔" /><input class="name" placeholder="Name" /></div>
+      <input class="url" placeholder="Open on tap (optional), e.g. spotify://" autocapitalize="off" />
+      <div class="hook"></div>
+      <div class="row"><button class="copy">Copy URL</button><button class="test ghost">Test</button><button class="del ghost">Delete</button></div>
+    </div>
+  </template>
   <script>
     const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
     const $ = (id) => document.getElementById(id);
@@ -32,6 +50,53 @@
     if (/iPhone|iPad/.test(navigator.userAgent) && !standalone) status("On iPhone: Share → Add to Home Screen, then open it from there.");
 
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+    const api = (path, opts = {}) =>
+      fetch(path, { ...opts, headers: { authorization: `Bearer ${localStorage.token}`, "content-type": "application/json" } });
+
+    async function loadChannels() {
+      const res = await api("/channels");
+      if (!res.ok) return;
+      $("channels").replaceChildren(...(await res.json()).map(card));
+    }
+
+    function card(ch) {
+      const el = $("tpl").content.firstElementChild.cloneNode(true);
+      const q = (c) => el.querySelector(c);
+      const hook = `${location.origin}/c/${ch.key}`;
+      q(".emoji").value = ch.emoji;
+      q(".name").value = ch.name;
+      q(".url").value = ch.url;
+      q(".hook").textContent = `${hook}?m=hello`;
+      const save = () => api(`/channels/${ch.key}`, {
+        method: "PUT",
+        body: JSON.stringify({ emoji: q(".emoji").value, name: q(".name").value, url: q(".url").value }),
+      });
+      for (const c of [".emoji", ".name", ".url"]) q(c).onchange = save;
+      q(".copy").onclick = async () => {
+        await navigator.clipboard.writeText(hook);
+        q(".copy").textContent = "Copied";
+        setTimeout(() => (q(".copy").textContent = "Copy URL"), 1500);
+      };
+      q(".test").onclick = async () => {
+        await save();
+        status((await (await fetch(`${hook}?m=Test`)).text()).trim());
+      };
+      q(".del").onclick = async () => {
+        if (!confirm(`Delete ${ch.name}? Its URL will stop working.`)) return;
+        await api(`/channels/${ch.key}`, { method: "DELETE" });
+        el.remove();
+      };
+      return el;
+    }
+
+    $("add").onclick = async () => {
+      const ch = await (await api("/channels", { method: "PUT", body: JSON.stringify({ name: "New channel" }) })).json();
+      $("channels").append(card(ch));
+      $("channels").lastElementChild.querySelector(".name").select();
+    };
+    $("token").onchange = () => { localStorage.token = $("token").value.trim(); loadChannels(); };
+    loadChannels();
 
     $("enable").onclick = async () => {
       try {

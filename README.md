@@ -29,6 +29,15 @@ curl -d token=<token> -d title=Build -d message="done" https://<worker-host>/sen
 curl -d token=<token> -d message="go" --data-urlencode "url=shortcuts://run-shortcut?name=X" https://<worker-host>/send
 ```
 
+## Channels
+
+In the Pusher web app, tap **+** to add a channel. Each channel has a name, an emoji (added to the start of the title, because iOS ignores notification icons), an optional link to open on tap, and its own secret URL:
+
+```sh
+curl "https://<worker-host>/c/<key>?m=hello"              # GET works from a browser or Shortcuts
+curl -d m=hello -d t=Title -d u=spotify:// https://<worker-host>/c/<key>
+```
+
 When you tap a notification that has a `url`, it opens `/open`, which hands off to the other app.
 
 Messages use the Declarative Web Push format, which iOS 18.4+ shows without JavaScript. `public/sw.js` handles older browsers.
