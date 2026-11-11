@@ -7,7 +7,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@pushforge/builder": "^2.0.5"
+    "@pushforge/builder": "^2.0.5",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4",

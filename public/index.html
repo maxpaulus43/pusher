@@ -4,66 +4,142 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
   <title>Pusher</title>
   <style>
-    body { font: 17px system-ui; background: #111; color: #eee; margin: 0; padding: 48px 24px; max-width: 420px; }
+    body { font: 17px system-ui; background: #111; color: #eee; margin: 0 auto; padding: 48px 24px; max-width: 420px; }
     input, button { font: inherit; width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #333; margin-top: 12px; }
     input { background: #1c1c1c; color: #eee; }
     button { background: #fff; color: #111; border: 0; font-weight: 600; }
+    button.ghost { background: #2a2a2a; color: #eee; }
+    [hidden] { display: none !important; }
     #status { margin-top: 16px; color: #aaa; }
+    ol { padding-left: 22px; line-height: 1.7; }
+    .qr { background: #fff; border-radius: 14px; padding: 12px; width: 220px; margin-top: 16px; }
+    .qr img { display: block; width: 100%; }
     h2 { margin-top: 40px; display: flex; justify-content: space-between; align-items: center; }
     h2 button { width: auto; margin: 0; padding: 6px 14px; }
     .ch { background: #1a1a1a; border-radius: 14px; padding: 4px 14px 14px; margin-top: 14px; }
     .row { display: flex; gap: 8px; }
     .row > * { flex: 1; }
     .ch .emoji { flex: 0 0 64px; text-align: center; }
-    .ch button.ghost { background: #2a2a2a; color: #eee; }
     .hook { margin-top: 12px; font: 13px ui-monospace, monospace; color: #888; word-break: break-all; }
   </style>
 </head>
 <body>
   <h1>Pusher</h1>
-  <input id="token" placeholder="Token" autocomplete="off" />
-  <button id="enable">Enable notifications</button>
-  <p id="status"></p>
-  <h2>Channels <button id="add">+</button></h2>
-  <div id="channels"></div>
+
+  <section id="welcome" hidden>
+    <button id="start">Get started</button>
+  </section>
+
+  <!-- Shown in Safari on iPhone: push only works from the Home Screen app. -->
+  <section id="install" hidden>
+    <ol>
+      <li>Tap <b>Share</b> <span aria-hidden="true">⎋</span></li>
+      <li>Tap <b>Add to Home Screen</b></li>
+      <li>Open Pusher from your Home Screen</li>
+    </ol>
+  </section>
+
+  <!-- Shown on a computer: set up on the phone instead. -->
+  <section id="desktop" hidden>
+    <p>Scan with your iPhone camera.</p>
+    <div class="qr"><img alt="QR code to set up Pusher on your phone" /></div>
+  </section>
+
+  <section id="app" hidden>
+    <button id="enable">Enable notifications</button>
+    <p id="status"></p>
+
+    <h2>Channels <button id="add" aria-label="Add channel">+</button></h2>
+    <div id="channels"></div>
+
+    <h2>Add a device</h2>
+    <div class="qr"><img alt="QR code to add another device" /></div>
+    <button id="copyLink" class="ghost">Copy link</button>
+  </section>
+
   <template id="tpl">
     <div class="ch">
-      <div class="row"><input class="emoji" placeholder="🔔" /><input class="name" placeholder="Name" /></div>
-      <input class="url" placeholder="Open on tap (optional), e.g. spotify://" autocapitalize="off" />
+      <div class="row"><input class="emoji" placeholder="🔔" aria-label="Emoji" /><input class="name" placeholder="Name" aria-label="Name" /></div>
+      <input class="url" placeholder="Open on tap (optional), e.g. spotify://" aria-label="Open on tap" autocapitalize="off" />
       <div class="hook"></div>
       <div class="row"><button class="copy">Copy URL</button><button class="test ghost">Test</button><button class="del ghost">Delete</button></div>
     </div>
   </template>
+
   <script>
-    const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
     const $ = (id) => document.getElementById(id);
     const status = (t) => ($("status").textContent = t);
+    const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const show = (...ids) => { for (const s of document.querySelectorAll("section")) s.hidden = !ids.includes(s.id); };
 
-    // Token can come from the URL (?t=...) so you don't have to type it on the phone.
-    const urlToken = new URLSearchParams(location.search).get("t");
-    if (urlToken) localStorage.token = urlToken;
-    $("token").value = localStorage.token ?? "";
+    // The account key travels in ?k= because Safari and the Home Screen app don't share storage,
+    // but the Home Screen app opens the URL it was saved from.
+    const params = new URLSearchParams(location.search);
+    const k = params.get("k") ?? params.get("t"); // ?t= is the old single-user link
+    if (k) localStorage.key = k;
+    let key = localStorage.key;
+    const link = () => `${location.origin}/?k=${key}`;
+    const qr = (data) => `/qr?d=${encodeURIComponent(data)}`;
 
+    const ios = /iPhone|iPad/.test(navigator.userAgent);
     const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
-    if (/iPhone|iPad/.test(navigator.userAgent) && !standalone) status("On iPhone: Share → Add to Home Screen, then open it from there.");
+    const mobile = ios || /Android/.test(navigator.userAgent);
 
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
     const api = (path, opts = {}) =>
-      fetch(path, { ...opts, headers: { authorization: `Bearer ${localStorage.token}`, "content-type": "application/json" } });
+      fetch(path, { ...opts, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" } });
 
+    function route() {
+      if (!key) return show("welcome");
+      // Make sure the address bar holds the key before the user taps "Add to Home Screen".
+      if (!params.has("k")) history.replaceState(null, "", link());
+      if (ios && !standalone) return show("install");
+      for (const img of document.querySelectorAll(".qr img")) img.src = qr(link());
+      show(...(mobile ? ["app"] : ["desktop", "app"]));
+      loadChannels();
+    }
+
+    $("start").onclick = async () => {
+      ({ key } = await (await fetch("/account", { method: "POST" })).json());
+      localStorage.key = key;
+      route();
+    };
+
+    $("enable").onclick = async () => {
+      try {
+        if ((await Notification.requestPermission()) !== "granted") return status("Notifications are off. Turn them on in Settings → Notifications.");
+        const { publicKey } = await (await fetch("/vapid")).json();
+        const reg = await navigator.serviceWorker.ready;
+        const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) });
+        const res = await api("/subscribe", { method: "POST", body: JSON.stringify(subscription) });
+        status(res.ok ? `Notifications on. ${(await res.json()).devices} device(s).` : await res.text());
+      } catch (e) {
+        status("Error: " + e.message);
+      }
+    };
+
+    $("copyLink").onclick = async () => {
+      await navigator.clipboard.writeText(link());
+      $("copyLink").textContent = "Copied";
+      setTimeout(() => ($("copyLink").textContent = "Copy link"), 1500);
+    };
+
+    let accountId;
     async function loadChannels() {
-      const res = await api("/channels");
-      if (!res.ok) return;
-      $("channels").replaceChildren(...(await res.json()).map(card));
+      const [me, list] = await Promise.all([api("/me"), api("/channels")]);
+      if (!me.ok) return status("This link is not valid.");
+      ({ id: accountId } = await me.json());
+      $("channels").replaceChildren(...(await list.json()).map(card));
     }
 
     function card(ch) {
       const el = $("tpl").content.firstElementChild.cloneNode(true);
       const q = (c) => el.querySelector(c);
-      const hook = `${location.origin}/c/${ch.key}`;
+      const hook = `${location.origin}/c/${accountId}/${ch.key}`;
       q(".emoji").value = ch.emoji;
       q(".name").value = ch.name;
       q(".url").value = ch.url;
@@ -83,7 +159,7 @@
         status((await (await fetch(`${hook}?m=Test`)).text()).trim());
       };
       q(".del").onclick = async () => {
-        if (!confirm(`Delete ${ch.name}? Its URL will stop working.`)) return;
+        if (!confirm(`Delete ${q(".name").value}? Its URL will stop working.`)) return;
         await api(`/channels/${ch.key}`, { method: "DELETE" });
         el.remove();
       };
@@ -91,30 +167,13 @@
     }
 
     $("add").onclick = async () => {
-      const ch = await (await api("/channels", { method: "PUT", body: JSON.stringify({ name: "New channel" }) })).json();
-      $("channels").append(card(ch));
+      const res = await api("/channels", { method: "PUT", body: JSON.stringify({ name: "New channel" }) });
+      if (!res.ok) return status(await res.text());
+      $("channels").append(card(await res.json()));
       $("channels").lastElementChild.querySelector(".name").select();
     };
-    $("token").onchange = () => { localStorage.token = $("token").value.trim(); loadChannels(); };
-    loadChannels();
 
-    $("enable").onclick = async () => {
-      try {
-        localStorage.token = $("token").value.trim();
-        if ((await Notification.requestPermission()) !== "granted") return status("Permission denied.");
-        const { publicKey } = await (await fetch("/vapid")).json();
-        const reg = await navigator.serviceWorker.ready;
-        const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) });
-        const res = await fetch("/subscribe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: localStorage.token, subscription }),
-        });
-        status(res.ok ? `Subscribed. ${(await res.json()).devices} device(s).` : await res.text());
-      } catch (e) {
-        status("Error: " + e.message);
-      }
-    };
+    route();
   </script>
 </body>
 </html>
