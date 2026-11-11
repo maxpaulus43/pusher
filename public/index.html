@@ -72,9 +72,12 @@
     // The account key travels in ?k= because Safari and the Home Screen app don't share storage,
     // but the Home Screen app opens the URL it was saved from.
     const params = new URLSearchParams(location.search);
+    // Ignore anything that isn't a real key, so a bad link can't replace a good saved key.
+    const isKey = (s) => /^[a-f0-9]{32}$/.test(s ?? "");
     const k = params.get("k") ?? params.get("t"); // ?t= is the old single-user link
-    if (k) localStorage.setItem("pusherKey", k);
+    if (isKey(k)) localStorage.setItem("pusherKey", k);
     let key = localStorage.getItem("pusherKey");
+    if (!isKey(key)) key = null;
     const link = () => `${location.origin}/?k=${key}`;
     const qr = (data) => `/qr?d=${encodeURIComponent(data)}`;
 
@@ -90,7 +93,7 @@
     function route() {
       if (!key) return show("welcome");
       // Make sure the address bar holds the key before the user taps "Add to Home Screen".
-      if (!params.has("k")) history.replaceState(null, "", link());
+      if (params.get("k") !== key) history.replaceState(null, "", link());
       if (ios && !standalone) return show("install");
       for (const img of document.querySelectorAll(".qr img")) img.src = qr(link());
       show("app");
