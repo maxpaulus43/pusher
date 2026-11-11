@@ -1,4 +1,4 @@
-import { generateVAPIDKeys, sendNotification, setVapidDetails, type PushSubscription } from "web-push";
+import { generateVAPIDKeys, sendNotification, type PushSubscription } from "web-push";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const STATE_FILE = "data/state.json";
@@ -17,15 +17,18 @@ const state: State = (await file.exists())
 const save = () => Bun.write(STATE_FILE, JSON.stringify(state, null, 2));
 await save();
 
-setVapidDetails("mailto:pusher@localhost", state.vapid.publicKey, state.vapid.privateKey);
-
-async function send(title: string, body: string, url: string) {
+async function send(title: string, body: string, url: string, origin: string) {
   // Declarative Web Push format (Safari 18.4+ shows it without JS). sw.js handles older browsers.
   const payload = JSON.stringify({ web_push: 8030, notification: { title, body, navigate: url } });
   let sent = 0;
   for (const sub of [...state.subs]) {
     try {
-      await sendNotification(sub, payload, { TTL: 86400, urgency: "high" });
+      await sendNotification(sub, payload, {
+        TTL: 86400,
+        urgency: "high",
+        // Apple rejects subjects like mailto:x@localhost with 403 BadJwtToken, so use our public URL.
+        vapidDetails: { subject: origin, ...state.vapid },
+      });
       sent++;
     } catch (e: any) {
       if (e.statusCode === 404 || e.statusCode === 410) {
@@ -67,7 +70,7 @@ Bun.serve({
         const origin = req.headers.get("x-forwarded-host")
           ? `https://${req.headers.get("x-forwarded-host")}`
           : new URL(req.url).origin;
-        const sent = await send(String(form.get("title") ?? "Pusher"), message, String(form.get("url") ?? origin + "/"));
+        const sent = await send(String(form.get("title") ?? "Pusher"), message, String(form.get("url") ?? origin + "/"), origin);
         return new Response(`sent to ${sent}/${state.subs.length} devices\n`);
       },
     },
