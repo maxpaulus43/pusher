@@ -1,0 +1,8 @@
+{
+  "name": "pusher",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "public" },
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }]
+}
