@@ -44,6 +44,7 @@ Bun.serve({
   port: PORT,
   routes: {
     "/": Bun.file("public/index.html"),
+    "/open": Bun.file("public/open.html"),
     "/sw.js": Bun.file("public/sw.js"),
     "/manifest.json": Bun.file("public/manifest.json"),
     "/icon.svg": Bun.file("public/icon.svg"),
@@ -70,7 +71,9 @@ Bun.serve({
         const origin = req.headers.get("x-forwarded-host")
           ? `https://${req.headers.get("x-forwarded-host")}`
           : new URL(req.url).origin;
-        const sent = await send(String(form.get("title") ?? "Pusher"), message, String(form.get("url") ?? origin + "/"), origin);
+        // iOS opens every notification tap inside the PWA, so links go through /open, which hands off to the app.
+        const url = form.get("url")?.toString();
+        const sent = await send(String(form.get("title") ?? "Pusher"), message, url ? `${origin}/open?u=${encodeURIComponent(url)}` : origin + "/", origin);
         return new Response(`sent to ${sent}/${state.subs.length} devices\n`);
       },
     },

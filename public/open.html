@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pusher</title>
+  <style>
+    body { font: 17px system-ui; background: #111; color: #eee; margin: 0; padding: 48px 24px; max-width: 420px; }
+    a { display: block; text-align: center; padding: 14px; border-radius: 10px; background: #fff; color: #111; font-weight: 600; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <a id="go">Open</a>
+  <script>
+    const u = new URLSearchParams(location.search).get("u") ?? "";
+    // Block script URLs: the link target comes from the query string.
+    if (!/^\s*(javascript|data|vbscript):/i.test(u)) {
+      document.getElementById("go").href = u;
+      location.href = u; // works where iOS allows it; the button is the fallback
+    }
+  </script>
+</body>
+</html>
