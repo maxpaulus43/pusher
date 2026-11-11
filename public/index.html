@@ -42,12 +42,6 @@
     </ol>
   </section>
 
-  <!-- Shown on a computer: set up on the phone instead. -->
-  <section id="desktop" hidden>
-    <p>Scan with your iPhone camera.</p>
-    <div class="qr"><img alt="QR code to set up Pusher on your phone" /></div>
-  </section>
-
   <section id="app" hidden>
     <button id="enable">Enable notifications</button>
     <p id="status"></p>
@@ -55,7 +49,7 @@
     <h2>Channels <button id="add" aria-label="Add channel">+</button></h2>
     <div id="channels"></div>
 
-    <h2>Add a device</h2>
+    <h2 id="addDevice">Add a device</h2>
     <div class="qr"><img alt="QR code to add another device" /></div>
     <button id="copyLink" class="ghost">Copy link</button>
   </section>
@@ -79,8 +73,8 @@
     // but the Home Screen app opens the URL it was saved from.
     const params = new URLSearchParams(location.search);
     const k = params.get("k") ?? params.get("t"); // ?t= is the old single-user link
-    if (k) localStorage.key = k;
-    let key = localStorage.key;
+    if (k) localStorage.setItem("pusherKey", k);
+    let key = localStorage.getItem("pusherKey");
     const link = () => `${location.origin}/?k=${key}`;
     const qr = (data) => `/qr?d=${encodeURIComponent(data)}`;
 
@@ -99,13 +93,15 @@
       if (!params.has("k")) history.replaceState(null, "", link());
       if (ios && !standalone) return show("install");
       for (const img of document.querySelectorAll(".qr img")) img.src = qr(link());
-      show(...(mobile ? ["app"] : ["desktop", "app"]));
+      show("app");
+      // On a computer the phone is the next step, so put the QR code first.
+      if (!mobile) $("app").prepend($("addDevice"), document.querySelector("#app .qr"), $("copyLink"));
       loadChannels();
     }
 
     $("start").onclick = async () => {
       ({ key } = await (await fetch("/account", { method: "POST" })).json());
-      localStorage.key = key;
+      localStorage.setItem("pusherKey", key);
       route();
     };
 
