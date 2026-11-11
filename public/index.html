@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="manifest" href="/manifest.json" />
+  <title>Pusher</title>
+  <style>
+    body { font: 17px system-ui; background: #111; color: #eee; margin: 0; padding: 48px 24px; max-width: 420px; }
+    input, button { font: inherit; width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #333; margin-top: 12px; }
+    input { background: #1c1c1c; color: #eee; }
+    button { background: #fff; color: #111; border: 0; font-weight: 600; }
+    #status { margin-top: 16px; color: #aaa; }
+  </style>
+</head>
+<body>
+  <h1>Pusher</h1>
+  <input id="token" placeholder="Token" autocomplete="off" />
+  <button id="enable">Enable notifications</button>
+  <p id="status"></p>
+  <script>
+    const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const $ = (id) => document.getElementById(id);
+    const status = (t) => ($("status").textContent = t);
+
+    // Token can come from the URL (?t=...) so you don't have to type it on the phone.
+    const urlToken = new URLSearchParams(location.search).get("t");
+    if (urlToken) localStorage.token = urlToken;
+    $("token").value = localStorage.token ?? "";
+
+    const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+    if (/iPhone|iPad/.test(navigator.userAgent) && !standalone) status("On iPhone: Share → Add to Home Screen, then open it from there.");
+
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+    $("enable").onclick = async () => {
+      try {
+        localStorage.token = $("token").value.trim();
+        if ((await Notification.requestPermission()) !== "granted") return status("Permission denied.");
+        const { publicKey } = await (await fetch("/vapid")).json();
+        const reg = await navigator.serviceWorker.ready;
+        const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) });
+        const res = await fetch("/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: localStorage.token, subscription }),
+        });
+        status(res.ok ? `Subscribed. ${(await res.json()).devices} device(s).` : await res.text());
+      } catch (e) {
+        status("Error: " + e.message);
+      }
+    };
+  </script>
+</body>
+</html>
