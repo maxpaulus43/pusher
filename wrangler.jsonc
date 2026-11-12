@@ -2,6 +2,9 @@
   "name": "pusher",
   "main": "worker.ts",
   "compatibility_date": "2026-11-01",
+  // Keep the old address alive while devices move over.
+  "workers_dev": true,
+  "routes": [{ "pattern": "pusher.maxpaul.us", "custom_domain": true }],
   "assets": { "directory": "public" },
   "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }]
